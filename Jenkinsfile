@@ -4,6 +4,7 @@ pipeline {
     environment {
         AWS_DEFAULT_REGION = 'us-east-1'
         TF_IN_AUTOMATION   = 'true'
+        SNYK_ORG           = credentials('snyk-org-slug')
     }
 
     stages {
@@ -12,6 +13,16 @@ pipeline {
                 checkout scm
             }
         }
+
+        stage('Snyk IaC Scan') {
+            steps {
+                snykSecurity(
+                    snykInstallation: 'snyk',
+                    snykTokenId: 'snyk-api-token',
+                    additionalArguments: '--iac --report --org=$SNYK_ORG --severity-threshold=high'
+                )
+            }
+        }                     
 
         stage('Terraform Init') {
             steps {
