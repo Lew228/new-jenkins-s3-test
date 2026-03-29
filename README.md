@@ -21,6 +21,12 @@ EC2 startup script to bootstrap Jenkins server
 ### Working Webhook Trigger
 ![Working Webhook Trigger](images/webhook-trigger.png)
 
+### Terraform Init Stage
+![Terraform Init Stage in the Pipeline](images/terraform-init-stage.png)
+
+### Terraform Apply Stage
+![Terraform Apply Stage in the Pipeline](images/terraform-apply-stage.png)
+
 ### Successful Terraform Deployment via Jenkins
 ![Successful Terraform Deployment via Jenkins](images/jenkins-success.png)
 
@@ -45,7 +51,7 @@ The Jenkins pipeline is triggered automatically by a GitHub push event. Jenkins 
 
 Final `Jenkinsfile`:
 
-```groovy
+```
 pipeline {
     agent any
 
@@ -102,9 +108,7 @@ pipeline {
 }
 ```
 ## Terraform Configuration
-
 Final `test-bucket.tf`:
-
 ```
 terraform {
   required_providers {
@@ -170,3 +174,168 @@ ngrok forwarded that request to your Jenkins server running locally.
 - GitHub webhooks require a **publicly reachable URL**
 - `localhost` is not reachable from GitHub
 - ngrok temporarily exposed my local Jenkins to the internet
+
+# Jenkins File Change to ignore README Updates
+
+I didnt want the pipeline to run everytime I made changes to my README.md and added images so I made changes to the Jenkinsfile to ignore those changes. I added **change detection logic** so Jenkins does not run the Terraform deployment when a commit only updates documentation files.
+
+## Before 
+*The original Jenkinsfile always ran Terraform after checkout:*
+```
+pipeline {
+    agent any
+
+    environment {
+        AWS_DEFAULT_REGION = 'us-east-1'
+        TF_IN_AUTOMATION   = 'true'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Terraform Init') {
+            steps {
+                sh 'terraform init -reconfigure'
+            }
+        }
+
+        stage('Terraform Apply') {
+            steps {
+                sh '''
+                    terraform plan -out=tfplan
+                    terraform apply -auto-approve tfplan
+                '''
+            }
+        }
+
+        stage('Optional Destroy') {
+            steps {
+                script {
+                    def destroyChoice = input(
+                        message: 'Do you want to run terraform destroy?',
+                        ok: 'Submit',
+                        parameters: [
+                            choice(
+                                name: 'DESTROY',
+                                choices: ['no', 'yes'],
+                                description: 'Select yes to destroy resources'
+                            )
+                        ]
+                    )
+                    if (destroyChoice == 'yes') {
+                        sh 'terraform destroy -auto-approve'
+                    } else {
+                        echo "Skipping destroy"
+                    }
+                }
+            }
+        }
+    }
+}
+```
+## After
+- a new environment variable: `SKIP_PIPELINE`
+- a `script` block in `Checkout` to inspect changed files
+- `when` conditions on the Terraform stages so they only run when needed
+```
+ pipeline {
+     agent any
+
+     environment {
+         AWS_DEFAULT_REGION = 'us-east-1'
+         TF_IN_AUTOMATION   = 'true'
++        SKIP_PIPELINE      = 'false'
+     }
+
+     stages {
+         stage('Checkout') {
+             steps {
+                 checkout scm
++                script {
++                    def changedFiles = sh(
++                        script: '''
++                            if [ "$(git rev-list --count HEAD)" -eq 1 ]; then
++                                git ls-tree --name-only -r HEAD
++                            else
++                                git diff --name-only HEAD~1 HEAD
++                            fi
++                        ''',
++                        returnStdout: true
++                    ).trim().split('\\n') as List
++
++                    echo "Changed files: ${changedFiles}"
++
++                    def nonDocChanges = changedFiles.findAll { file ->
++                        file?.trim() &&
++                        file != 'README.md' &&
++                        !file.startsWith('images/')
++                    }
++
++                    if (nonDocChanges.isEmpty()) {
++                        env.SKIP_PIPELINE = 'true'
++                        currentBuild.description = 'Skipped: README/images only'
++                        echo 'Only README.md or images/ changed. Skipping pipeline.'
++                    }
++                }
+             }
+         }
+
+         stage('Terraform Init') {
++            when {
++                expression { env.SKIP_PIPELINE != 'true' }
++            }
+             steps {
+                 sh 'terraform init -reconfigure'
+             }
+         }
+
+         stage('Terraform Apply') {
++            when {
++                expression { env.SKIP_PIPELINE != 'true' }
++            }
+             steps {
+                 sh '''
+                     terraform plan -out=tfplan
+                     terraform apply -auto-approve tfplan
+                 '''
+             }
+         }
+
+         stage('Optional Destroy') {
++            when {
++                expression { env.SKIP_PIPELINE != 'true' }
++            }
+             steps {
+                 script {
+                     def destroyChoice = input(
+                         message: 'Do you want to run terraform destroy?',
+                         ok: 'Submit',
+                         parameters: [
+                             choice(
+                                 name: 'DESTROY',
+                                 choices: ['no', 'yes'],
+                                 description: 'Select yes to destroy resources'
+                             )
+                         ]
+                     )
+                     if (destroyChoice == 'yes') {
+                         sh 'terraform destroy -auto-approve'
+                     } else {
+                         echo "Skipping destroy"
+                     }
+                 }
+             }
+         }
+     }
+ }
+```
+### What each new piece does:
+- `SKIP_PIPELINE = 'false'` - Creates a flag that defaults to “do not skip.”
+- `git diff --name-only HEAD~1 HEAD` - Checks which files changed in the most recent commit.
+- `file != 'README.md' && !file.startsWith('images/')` - Filters out documentation-only changes.
+- `if (nonDocChanges.isEmpty())` - If nothing changed except README or images, mark the pipeline to skip.
+- `when { expression { env.SKIP_PIPELINE != 'true' } }` - Prevents Terraform stages from running when the skip flag is set.
