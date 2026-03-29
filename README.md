@@ -18,6 +18,9 @@ EC2 startup script to bootstrap Jenkins server
 
 ## Screenshots
 
+### Webhook Trigger
+![Webhook Trigger in GitHub](images/webhook-trigger-github.png)
+
 ### Working Webhook Trigger
 ![Working Webhook Trigger](images/webhook-trigger.png)
 
@@ -174,6 +177,45 @@ ngrok forwarded that request to your Jenkins server running locally.
 - GitHub webhooks require a **publicly reachable URL**
 - `localhost` is not reachable from GitHub
 - ngrok temporarily exposed my local Jenkins to the internet
+
+## Running ngrok for the Webhook
+
+### Steps
+
+**1. Install ngrok on your host machine.**
+
+*On macOS with Homebrew:* 
+
+`brew install ngrok`
+
+**2. Verify the install:**
+
+`ngrok help`
+
+*The official quickstart lists Homebrew for macOS and uses ngrok help to confirm installation.*
+
+**3. Create an ngrok account and copy your authtoken from the ngrok dashboard.
+
+![Ngrok authentication example](images/ngrok-authentication.png)
+
+**4. Connect ngrok to your account:**
+
+`ngrok config add-authtoken YOUR_TOKEN_HERE`
+
+*The ngrok CLI stores the authtoken in the local ngrok configuration so the agent can authenticate properly.*
+
+**5. Make sure Jenkins is running locally on port `8080`.**
+**6. Start the tunnel:**
+
+`ngrok http 8080`
+
+*ngrok will display a public forwarding URL similar to:`Forwarding    https://your-ngrok-url.ngrok-free.app -> http://localhost:8080`*
+
+**7. Copy the HTTPS forwarding URL and add `/github-webhook/` to the end for the GitHub webhook.**
+
+`https://your-ngrok-url.ngrok-free.app/github-webhook/`
+
+
 
 # Jenkins File Change to ignore README Updates
 
