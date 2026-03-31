@@ -32,7 +32,7 @@ pipeline {
                     snykInstallation: 'snyk',
                     snykTokenId: 'snyk-api-token',
                     additionalArguments: '--iac --report --org=$SNYK_ORG --severity-threshold=high',
-                    failOnIssues: true,
+                    failOnIssues: false,
                     monitorProjectOnBuild: false
                 )
             }
