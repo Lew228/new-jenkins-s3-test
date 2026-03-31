@@ -16,13 +16,13 @@ pipeline {
 
         stage('Snyk IaC Scan Test') {
             steps {
-                snykSecurity(
-                    snykInstallation: 'snyk',
-                    snykTokenId: 'snyk-api-token',
-                    additionalArguments: '--iac --org=$SNYK_ORG --severity-threshold=high',
-                    failOnIssues: false,
-                    monitorProjectOnBuild: false
-                )
+                withCredentials([string(credentialsId: 'snyk-api-token', variable: 'SNYK_TOKEN')]) {
+                    sh '''
+                        export PATH=$PATH:/var/lib/jenkins/tools/io.snyk.jenkins.tools.SnykInstallation/snyk
+                        snyk auth $SNYK_TOKEN
+                        snyk iac test --org=$SNYK_ORG --severity-threshold=high || true
+                    '''
+                }
             }
         }
 
@@ -36,7 +36,7 @@ pipeline {
                     monitorProjectOnBuild: false
                 )
             }
-        }                     
+        }
 
         stage('Terraform Init') {
             steps {
@@ -55,9 +55,7 @@ pipeline {
                     $class: 'AmazonWebServicesCredentialsBinding',
                     credentialsId: 'aws-iam-user-creds'
                 ]]) {
-                    sh '''
-                        terraform plan -out=tfplan
-                    '''
+                    sh 'terraform plan'
                 }
             }
         }
